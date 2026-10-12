@@ -10,4 +10,6 @@ RUN mkdir -p modelo && \
     https://huggingface.co/spaces/Fibonhacci/ojo-huaso-modelo/resolve/main/atajada_r2plus1d.pt
 ENV PORT=8000
 EXPOSE 8000
+ENV MALLOC_ARENA_MAX=1
+ENV OMP_NUM_THREADS=1
 CMD ["sh", "-c", "uvicorn api_atajadas:app --host 0.0.0.0 --port ${PORT}"]
