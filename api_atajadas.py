@@ -508,6 +508,7 @@ def salud():
 @app.post('/analizar')
 async def analizar(request: Request,
                    formato: str = Query('json', description='json | resumen | video'),
+                   guardar: bool = Query(True, description='Si es true, guarda el resultado en el historial.'),
                    x_api_key: Optional[str] = Header(None),
                    x_filename: Optional[str] = Header(None)):
     _verificar_clave(x_api_key)
@@ -529,6 +530,55 @@ async def analizar(request: Request,
         resultado, video, img = await run_in_threadpool(procesar_video_bytes, data, nombre)
     except ValueError as e:
         raise HTTPException(422, str(e))
+
+    if guardar:
+        try:
+            resultado['historial_id'] = _guardar_en_historial(nombre, resultado, video, img)
+        except Exception:
+            pass  # no interrumpir la respuesta si falla el guardado
+
+    base = re.sub(r'[^A-Za-z0-9_.-]+', '_', sin_tildes(Path(nombre).stem)) or 'video'
+    if formato == 'video':
+        cab = {'X-Puntaje': '' if resultado['puntaje'] is None else str(resultado['puntaje']),
+               'X-Tipo-Atajada': resultado['tipo_atajada'] or '',
+               'X-Momento-Segundos': '' if resultado['momento_segundos'] is None else str(resultado['momento_segundos']),
+               'X-Detectada': str(resultado['detectada']).lower(),
+               'X-Resultado': base64.b64encode(json.dumps(resultado, ensure_ascii=False).encode()).decode(),
+               'Content-Disposition': f'attachment; filename="{base}_ANOTADO.mp4"'}
+        return Response(video, media_type='video/mp4', headers=cab)
+    if formato == 'json':
+        resultado['video_anotado'] = {'nombre': f'{base}_ANOTADO.mp4', 'content_type': 'video/mp4',
+                                      'base64': base64.b64encode(video).decode()}
+        resultado['imagen_atajada'] = ({'nombre': f'{base}_momento_atajada.jpg', 'content_type': 'image/jpeg',
+                                        'base64': base64.b64encode(img).decode()} if img else None)
+    return JSONResponse(resultado)
+
+
+@app.get('/historial')
+def listar_historial(limite: int = Query(50, le=200), x_api_key: Optional[str] = Header(None)):
+    _verificar_clave(x_api_key)
+    con = _conectar_db()
+    filas = con.execute('SELECT * FROM historial ORDER BY id DESC LIMIT ?', (limite,)).fetchall()
+    con.close()
+    return [dict(f) for f in filas]
+
+
+@app.get('/historial/{registro_id}/video')
+def historial_video(registro_id: int, x_api_key: Optional[str] = Header(None), api_key: Optional[str] = Query(None)):
+    _verificar_clave(x_api_key or api_key)
+    ruta = HISTORIAL_DIR / f'{registro_id}_video.mp4'
+    if not ruta.exists():
+        raise HTTPException(404, 'Video no encontrado.')
+    return Response(ruta.read_bytes(), media_type='video/mp4')
+
+
+@app.get('/historial/{registro_id}/imagen')
+def historial_imagen(registro_id: int, x_api_key: Optional[str] = Header(None), api_key: Optional[str] = Query(None)):
+    _verificar_clave(x_api_key or api_key)
+    ruta = HISTORIAL_DIR / f'{registro_id}_imagen.jpg'
+    if not ruta.exists():
+        raise HTTPException(404, 'Imagen no encontrada.')
+    return Response(ruta.read_bytes(), media_type='image/jpeg')
 
     base = re.sub(r'[^A-Za-z0-9_.-]+', '_', sin_tildes(Path(nombre).stem)) or 'video'
     if formato == 'video':
