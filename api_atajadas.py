@@ -399,26 +399,31 @@ def _inicializar_db():
             momento_segundos REAL,
             confianza_deteccion REAL,
             confianza_tipo REAL,
-            justificacion TEXT
+            justificacion TEXT,
+            repeticion_offset_segundos REAL
         )
     ''')
+    # Migración: si la tabla ya existía de antes (sin esta columna), se agrega sin perder los datos.
+    columnas = {fila[1] for fila in con.execute('PRAGMA table_info(historial)')}
+    if 'repeticion_offset_segundos' not in columnas:
+        con.execute('ALTER TABLE historial ADD COLUMN repeticion_offset_segundos REAL')
     con.commit()
     con.close()
 
 
 _inicializar_db()
 
-
 def _guardar_en_historial(nombre_video, resultado, video_bytes, img_bytes):
     con = _conectar_db()
     cur = con.execute(
         '''INSERT INTO historial
            (fecha, nombre_video, detectada, puntaje, tipo_atajada, nombre_atajada,
-            momento_segundos, confianza_deteccion, confianza_tipo, justificacion)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            momento_segundos, confianza_deteccion, confianza_tipo, justificacion, repeticion_offset_segundos)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (datetime.utcnow().isoformat(), nombre_video, int(resultado['detectada']), resultado['puntaje'],
          resultado['tipo_atajada'], resultado['nombre_atajada'], resultado['momento_segundos'],
-         resultado['confianza_deteccion'], resultado['confianza_tipo'], resultado['justificacion']),
+         resultado['confianza_deteccion'], resultado['confianza_tipo'], resultado['justificacion'],
+         resultado.get('repeticion_offset_segundos')),
     )
     con.commit()
     registro_id = cur.lastrowid
@@ -475,6 +480,7 @@ def procesar_video_bytes(data, nombre='video.mp4'):
         'tipo_atajada': res['tipo'],
         'nombre_atajada': res['nombre'],
         'momento_segundos': round(float(res['t']), 2) if res['detectada'] else None,
+        'repeticion_offset_segundos': round(float(res['duracion']), 2) if res['detectada'] else None,
         'confianza_deteccion': round(float(res['prob']), 4),
         'confianza_tipo': round(float(res['conf_tipo']), 4) if (res['detectada'] and res['conf_tipo'] is not None) else None,
         'probabilidades_tipo': {k: round(float(v), 4) for k, v in res['probs_tipo'].items()},
@@ -484,7 +490,6 @@ def procesar_video_bytes(data, nombre='video.mp4'):
         'tiempo_proceso_s': round(time.time() - t0, 2),
     }
     return resultado, video, img
-
 
 app = FastAPI(title='API de atajadas – Rodeo chileno', version='1.0',
               description='Recibe un video (bytes) de una carrera, detecta la atajada y devuelve puntaje, tipo y video procesado.')
