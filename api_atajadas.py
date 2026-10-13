@@ -437,15 +437,21 @@ CK = cargar_modelo(MODEL_PATH)
 _lock = threading.Lock()                                      # una inferencia a la vez en la GPU
 
 
-def normalizar_video(data, nombre, carpeta):
-    # Bytes recibidos -> MP4 H.264 legible por OpenCV, con la orientación corregida y ancho <= MAX_ANCHO
+def normalizar_video(data, nombre, carpeta, inicio_s=None, fin_s=None):
+    # Bytes recibidos -> MP4 H.264 legible por OpenCV, con la orientación corregida y ancho <= MAX_ANCHO.
+    # Si vienen inicio_s/fin_s, recorta el video a ese tramo antes de normalizarlo.
     ext = Path(nombre or '').suffix.lower()
     crudo = os.path.join(carpeta, 'entrada' + (ext if ext in VIDEO_EXT else '.bin'))
     with open(crudo, 'wb') as f:
         f.write(data)
     destino = os.path.join(carpeta, 'video.mp4')
+    recorte_pre, recorte_post = [], []
+    if inicio_s is not None and inicio_s > 0:
+        recorte_pre = ['-ss', str(inicio_s)]
+    if fin_s is not None and inicio_s is not None and fin_s > inicio_s:
+        recorte_post = ['-t', str(fin_s - inicio_s)]
     try:
-        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', crudo, '-an',
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', *recorte_pre, '-i', crudo, *recorte_post, '-an',
                         '-vf', f"scale='trunc(min({MAX_ANCHO},iw)/2)*2':-2",
                         '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '20', destino],
                        check=True, timeout=900)
@@ -465,11 +471,11 @@ def normalizar_video(data, nombre, carpeta):
     return destino
 
 
-def procesar_video_bytes(data, nombre='video.mp4'):
+def procesar_video_bytes(data, nombre='video.mp4', inicio_s=None, fin_s=None):
     # Función principal: bytes de un video -> (resultado con puntaje y tipo, video procesado, imagen de la atajada)
     t0 = time.time()
     with tempfile.TemporaryDirectory() as td:
-        path = normalizar_video(data, nombre, td)
+        path = normalizar_video(data, nombre, td, inicio_s, fin_s)
         with _lock:
             res = analizar_video(path, mostrar=False, out_dir=td)
         video = Path(res['archivos']['video']).read_bytes()
