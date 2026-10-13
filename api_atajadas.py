@@ -507,6 +507,12 @@ app.add_middleware(CORSMiddleware, allow_origins=os.environ.get('CORS_ORIGINS', 
 def _verificar_clave(x_api_key):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(401, 'API key inválida o ausente (header X-API-Key).')
+        
+def _a_float(v):
+    try:
+        return float(v) if v not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
 
 
 @app.get('/salud')
@@ -525,12 +531,15 @@ async def analizar(request: Request,
     _verificar_clave(x_api_key)
     if formato not in ('json', 'resumen', 'video'):
         raise HTTPException(400, "formato debe ser 'json', 'resumen' o 'video'.")
+    inicio_s = fin_s = None
     if request.headers.get('content-type', '').lower().startswith('multipart/form-data'):
         form = await request.form()
         archivo = form.get('video') or next((v for v in form.values() if hasattr(v, 'read')), None)
         if archivo is None or not hasattr(archivo, 'read'):
             raise HTTPException(400, "Envía el video en el campo 'video' del formulario.")
         data, nombre = await archivo.read(), (archivo.filename or 'video.mp4')
+        inicio_s = _a_float(form.get('inicio_segundos'))
+        fin_s = _a_float(form.get('fin_segundos'))
     else:
         data, nombre = await request.body(), (x_filename or 'video.mp4')
     if not data:
@@ -538,7 +547,7 @@ async def analizar(request: Request,
     if len(data) > MAX_MB * 1024 * 1024:
         raise HTTPException(413, f'El video supera el máximo de {MAX_MB:.0f} MB.')
     try:
-        resultado, video, img = await run_in_threadpool(procesar_video_bytes, data, nombre)
+        resultado, video, img = await run_in_threadpool(procesar_video_bytes, data, nombre, inicio_s, fin_s)
     except ValueError as e:
         raise HTTPException(422, str(e))
 
