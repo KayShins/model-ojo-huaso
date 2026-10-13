@@ -371,6 +371,63 @@ MAX_DURACION_S = float(os.environ.get('MAX_DURACION_S', '600'))
 MAX_ANCHO = int(os.environ.get('MAX_ANCHO', '1280'))          # ancho máximo tras normalizar el video
 DET_THRESHOLD = float(os.environ.get('DET_THRESHOLD', DET_THRESHOLD))
 
+import sqlite3
+from datetime import datetime
+
+HISTORIAL_DIR = Path(os.environ.get('HISTORIAL_DIR', str(Path(__file__).resolve().parent / 'historial')))
+HISTORIAL_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = HISTORIAL_DIR / 'historial.db'
+
+
+def _conectar_db():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def _inicializar_db():
+    con = _conectar_db()
+    con.execute('''
+        CREATE TABLE IF NOT EXISTS historial (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            nombre_video TEXT,
+            detectada INTEGER,
+            puntaje INTEGER,
+            tipo_atajada TEXT,
+            nombre_atajada TEXT,
+            momento_segundos REAL,
+            confianza_deteccion REAL,
+            confianza_tipo REAL,
+            justificacion TEXT
+        )
+    ''')
+    con.commit()
+    con.close()
+
+
+_inicializar_db()
+
+
+def _guardar_en_historial(nombre_video, resultado, video_bytes, img_bytes):
+    con = _conectar_db()
+    cur = con.execute(
+        '''INSERT INTO historial
+           (fecha, nombre_video, detectada, puntaje, tipo_atajada, nombre_atajada,
+            momento_segundos, confianza_deteccion, confianza_tipo, justificacion)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (datetime.utcnow().isoformat(), nombre_video, int(resultado['detectada']), resultado['puntaje'],
+         resultado['tipo_atajada'], resultado['nombre_atajada'], resultado['momento_segundos'],
+         resultado['confianza_deteccion'], resultado['confianza_tipo'], resultado['justificacion']),
+    )
+    con.commit()
+    registro_id = cur.lastrowid
+    con.close()
+    (HISTORIAL_DIR / f'{registro_id}_video.mp4').write_bytes(video_bytes)
+    if img_bytes:
+        (HISTORIAL_DIR / f'{registro_id}_imagen.jpg').write_bytes(img_bytes)
+    return registro_id
+    
 CK = cargar_modelo(MODEL_PATH)
 _lock = threading.Lock()                                      # una inferencia a la vez en la GPU
 
