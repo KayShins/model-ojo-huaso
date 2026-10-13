@@ -143,7 +143,7 @@ class AtajadaNet(nn.Module):
         return self.det(f).squeeze(1), self.tipo(f)
 
 @torch.no_grad()
-def curva_atajada(model, frames, times, stride=1, batch=32):
+def curva_atajada(model, frames, times, stride=2, batch=8):
     # Recorre todo el video con una ventana deslizante y devuelve la probabilidad de atajada en cada instante
     model.eval()
     n = len(frames)
