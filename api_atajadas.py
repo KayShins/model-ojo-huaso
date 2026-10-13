@@ -615,7 +615,21 @@ def historial_imagen(registro_id: int, x_api_key: Optional[str] = Header(None), 
         resultado['imagen_atajada'] = ({'nombre': f'{base}_momento_atajada.jpg', 'content_type': 'image/jpeg',
                                         'base64': base64.b64encode(img).decode()} if img else None)
     return JSONResponse(resultado)
-
+    
+@app.delete('/historial/{registro_id}')
+def eliminar_historial(registro_id: int, x_api_key: Optional[str] = Header(None)):
+    _verificar_clave(x_api_key)
+    con = _conectar_db()
+    cur = con.execute('DELETE FROM historial WHERE id = ?', (registro_id,))
+    con.commit()
+    con.close()
+    if cur.rowcount == 0:
+        raise HTTPException(404, 'Registro no encontrado.')
+    for sufijo in ('_video.mp4', '_imagen.jpg'):
+        ruta = HISTORIAL_DIR / f'{registro_id}{sufijo}'
+        if ruta.exists():
+            ruta.unlink()
+    return {'eliminado': True, 'id': registro_id}
 
 if __name__ == '__main__':
     import uvicorn
